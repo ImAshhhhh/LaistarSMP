@@ -23,21 +23,28 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
 
       - name: Download Backup from Hugging Face
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           mkdir -p server_folder
           
-          # Download bedrock_server.zip from your HF dataset using the new 'hf' command
+          # Download bedrock_server.zip from your HF dataset
           hf download ImAshTheTrainer/LaistarSMP bedrock_server.zip --repo-type dataset --local-dir . --token ${{ secrets.HF_TOKEN }}
           
           # Unzip it into the server folder
           if [ -f bedrock_server.zip ]; then
             echo "Backup found, unzipping..."
             unzip -o bedrock_server.zip -d server_folder
-            chmod +x server_folder/bedrock_server
             rm bedrock_server.zip
+            
+            # FIX: Find the bedrock_server executable no matter what folder it is in, 
+            # and move everything to the main server_folder directory.
+            SERVER_BIN=$(find server_folder -name "bedrock_server" -type f | head -n 1)
+            if [ -n "$SERVER_BIN" ]; then
+              SERVER_DIR=$(dirname "$SERVER_BIN")
+              echo "Found server files in $SERVER_DIR. Moving to server_folder..."
+              mv "$SERVER_DIR"/* server_folder/ 2>/dev/null || true
+            fi
+            chmod +x server_folder/bedrock_server
           else
             echo "First run or backup missing. Downloading fresh server..."
             curl -L -o bedrock_server.zip https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-1.20.81.01.zip
