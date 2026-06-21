@@ -19,13 +19,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip zip curl
-          pip install -U "huggingface_hub[cli]"
+          python3 -m pip install -U "huggingface_hub[cli]"
+          export PATH="$HOME/.local/bin:$PATH"
 
       - name: Download Backup from Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          export PATH="$HOME/.local/bin:$PATH"
           mkdir -p server_folder
-          # Download bedrock_server.zip from your HF dataset
-          huggingface-cli download ImAshTheTrainer/LaistarSMP bedrock_server.zip --repo-type dataset --local-dir . --token ${{ secrets.HF_TOKEN }}
+          
+          # Download bedrock_server.zip from your HF dataset using the new 'hf' command
+          hf download ImAshTheTrainer/LaistarSMP bedrock_server.zip --repo-type dataset --local-dir . --token ${{ secrets.HF_TOKEN }}
           
           # Unzip it into the server folder
           if [ -f bedrock_server.zip ]; then
@@ -97,8 +102,9 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # Upload the new zip to your HF dataset, overwriting the old one
-          huggingface-cli upload ImAshTheTrainer/LaistarSMP bedrock_server.zip bedrock_server.zip --repo-type dataset --token ${{ secrets.HF_TOKEN }}
+          export PATH="$HOME/.local/bin:$PATH"
+          # Upload the new zip to your HF dataset using the new 'hf' command
+          hf upload ImAshTheTrainer/LaistarSMP bedrock_server.zip bedrock_server.zip --repo-type dataset --token ${{ secrets.HF_TOKEN }}
 
       - name: Trigger Next Workflow Loop
         if: always()
