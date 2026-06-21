@@ -1,0 +1,109 @@
+name: Bedrock Playit Server Loop (HF Backup)
+
+on:
+  workflow_dispatch:
+  issue_comment:
+    types: [created]
+
+jobs:
+  run-server:
+    if: github.event_name == 'workflow_dispatch' || (github.event.issue.number == 1 && contains(github.event.comment.body, 'RESTART_LOOP_TRIGGER_9921'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # 6-hour GitHub limit failsafe
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Environment & Install Hugging Face CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip zip curl
+          pip install -U "huggingface_hub[cli]"
+
+      - name: Download Backup from Hugging Face
+        run: |
+          mkdir -p server_folder
+          # Download bedrock_server.zip from your HF dataset
+          huggingface-cli download ImAshTheTrainer/LaistarSMP bedrock_server.zip --repo-type dataset --local-dir . --token ${{ secrets.HF_TOKEN }}
+          
+          # Unzip it into the server folder
+          if [ -f bedrock_server.zip ]; then
+            echo "Backup found, unzipping..."
+            unzip -o bedrock_server.zip -d server_folder
+            chmod +x server_folder/bedrock_server
+            rm bedrock_server.zip
+          else
+            echo "First run or backup missing. Downloading fresh server..."
+            curl -L -o bedrock_server.zip https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-1.20.81.01.zip
+            unzip -o bedrock_server.zip -d server_folder
+            chmod +x server_folder/bedrock_server
+            rm bedrock_server.zip
+          fi
+
+      - name: Start Playit Agent
+        run: |
+          # Start the Playit tunnel using your provided Docker command
+          docker run -d --restart unless-stopped --net=host \
+            -e SECRET_KEY=50437c22f626759113146a77b8167ccf2bf69464d3be7cd69806059fbfe12f89 \
+            --name playit-agent \
+            ghcr.io/playit-cloud/playit-agent:0.17
+
+      - name: Start Bedrock Server
+        run: |
+          # Start server in the background, output to log file
+          cd server_folder
+          ./bedrock_server > ../server_output.log 2>&1 &
+          cd ..
+
+      - name: Print Server Log (Check IP in Playit Dashboard)
+        run: |
+          sleep 15
+          echo "=== Server Output ==="
+          cat server_output.log
+
+      - name: Run Server for 5 Hours 44 Minutes
+        run: |
+          # 5 hours = 18000 seconds
+          # 44 minutes = 2640 seconds
+          # Total = 20640 seconds
+          echo "Server is running. Sleeping for 5h 44m..."
+          sleep 20640
+
+      - name: Safe Shutdown and Zip
+        if: always() # Ensures backup happens even if the sleep is cancelled
+        run: |
+          echo "Time reached! Safely stopping server..."
+          
+          # Send in-game warning and stop commands
+          echo "say Server is restarting in 10 seconds. No data will be lost!" > server_folder/commands.stdin
+          sleep 10
+          echo "save hold" > server_folder/commands.stdin
+          sleep 5
+          echo "save resume" > server_folder/commands.stdin
+          sleep 2
+          echo "stop" > server_folder/commands.stdin
+          
+          # Wait for server to close
+          sleep 15
+          pkill -f bedrock_server || true
+
+          # Zip the ENTIRE server folder to bedrock_server.zip
+          echo "Zipping the whole folder..."
+          zip -r bedrock_server.zip server_folder/
+
+      - name: Upload Backup to Hugging Face Dataset
+        if: always()
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          # Upload the new zip to your HF dataset, overwriting the old one
+          huggingface-cli upload ImAshTheTrainer/LaistarSMP bedrock_server.zip bedrock_server.zip --repo-type dataset --token ${{ secrets.HF_TOKEN }}
+
+      - name: Trigger Next Workflow Loop
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          # Use your GH_PAT to comment on Issue #1 to trigger the next 5h 44m run
+          gh issue comment 1 --body "RESTART_LOOP_TRIGGER_9921" || gh issue create --title "Server Loop" --body "RESTART_LOOP_TRIGGER_9921"
